@@ -1,0 +1,12 @@
+# Copy this to terraform.tfvars (which is gitignored) and fill in real values.
+# do_token is NOT set here — export it instead:
+#   export TF_VAR_do_token="dop_v1_xxxxxxxx"
+
+project_name        = "phoenix"
+region              = "nyc3"
+droplet_size        = "s-2vcpu-4gb"
+image               = "ubuntu-22-04-x64"
+vpc_cidr            = "10.10.0.0/24"
+admin_ip_cidr       = "YOUR_PUBLIC_IP/32"
+ssh_key_fingerprint = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+worker_count        = 2

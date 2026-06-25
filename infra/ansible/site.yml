@@ -1,0 +1,35 @@
+---
+# Run this after bootstrap.yml. Safe to run repeatedly — installs are
+# guarded by a stat check, and service state/enabled are idempotent.
+#
+#   ansible-playbook site.yml
+
+- name: Install k3s server on the control plane
+  hosts: control_plane
+  become: yes
+  roles:
+    - k3s_server
+
+- name: Install k3s agents and join workers
+  hosts: workers
+  become: yes
+  roles:
+    - k3s_agent
+
+- name: Fetch kubeconfig and rewrite the server address to the public IP
+  hosts: control_plane
+  become: yes
+  tasks:
+    - name: Fetch kubeconfig from the control plane
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/kubeconfig-phoenix.yaml"
+        flat: yes
+
+    - name: Rewrite 127.0.0.1 to the control plane's public IP
+      delegate_to: localhost
+      become: no
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/kubeconfig-phoenix.yaml"
+        regexp: "https://127\\.0\\.0\\.1:6443"
+        replace: "https://{{ ansible_host }}:6443"

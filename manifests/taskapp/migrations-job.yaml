@@ -1,0 +1,67 @@
+# Migrations run as a one-off Job, NOT in the backend entrypoint.
+#
+# Why this matters at 2+ replicas:
+#   If each backend pod ran "flask db upgrade" on startup, two pods would
+#   race to apply the same migration simultaneously, causing data corruption
+#   or a crash. A Job runs once to completion first, then the Deployment
+#   starts its replicas with the schema already in place.
+#
+# Re-run this Job whenever you deploy a schema change:
+#   kubectl delete job db-migrate -n taskapp
+#   kubectl apply -f migrations-job.yaml
+#   kubectl wait --for=condition=complete job/db-migrate -n taskapp --timeout=120s
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: taskapp
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait for Postgres to be ready before attempting migrations.
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -U taskapp -d taskapp; do
+                echo "Waiting for postgres..."; sleep 2;
+              done
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: taskapp-secret
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: migrate
+          image: ghcr.io/ts-a-devops/taskapp-backend:5d6b8fc
+          command: ["flask", "db", "upgrade"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taskapp-secret
+                  key: DATABASE_URL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taskapp-secret
+                  key: JWT_SECRET_KEY
+            - name: FLASK_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: FLASK_ENV
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

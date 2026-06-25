@@ -1,0 +1,22 @@
+---
+- name: Check if k3s agent is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_installed
+
+# K3S_URL uses the control plane's PRIVATE ip — the firewall only opens
+# 6443 to the VPC, not the internet, so this only works node-to-node.
+- name: Install k3s agent and join the cluster
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION="{{ k3s_version }}" \
+      K3S_URL="https://{{ hostvars[groups['control_plane'][0]]['private_ip'] }}:6443" \
+      K3S_TOKEN="{{ hostvars[groups['control_plane'][0]]['k3s_node_token'] }}" \
+      sh -
+  when: not k3s_installed.stat.exists
+
+- name: Ensure k3s-agent service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: started
+    enabled: yes

@@ -1,0 +1,18 @@
+# Non-secret configuration — safe to commit.
+# Passwords and JWT secrets live in secret.yaml (gitignored).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskapp-config
+  namespace: taskapp
+data:
+  POSTGRES_DB: "taskapp"
+  POSTGRES_USER: "taskapp"
+  FLASK_ENV: "production"
+  # Internal service name — never the public domain.
+  # The backend resolves this within the cluster via kube-dns.
+  DATABASE_HOST: "postgres"
+  DATABASE_PORT: "5432"
+  # Same-origin: frontend calls /api, Ingress routes it to the backend.
+  # No CORS needed because the browser sees one origin for everything.
+  CORS_ORIGINS: "https://taskapp-mariam.xyz"

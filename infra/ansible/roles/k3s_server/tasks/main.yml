@@ -1,0 +1,43 @@
+---
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_installed
+
+# --tls-san adds the public IP to the server's TLS certificate, so the
+# kubeconfig we rewrite later (127.0.0.1 -> public IP) still passes
+# certificate verification from your laptop.
+- name: Install k3s server
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION="{{ k3s_version }}" \
+      INSTALL_K3S_EXEC="server --tls-san {{ ansible_host }} --write-kubeconfig-mode 644" \
+      sh -
+  when: not k3s_installed.stat.exists
+
+- name: Ensure k3s service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+    enabled: yes
+
+- name: Allow mariam user to access k3s kubeconfig
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/k3s.yaml
+    mode: '0644'
+
+- name: Wait for the node-token file to exist
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 90
+
+- name: Read the node-token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: node_token_raw
+
+# This fact lives in hostvars for the rest of the playbook run, so the
+# workers play below can read it via hostvars[control_plane_host].
+- name: Expose node-token as a fact for the workers play
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ node_token_raw['content'] | b64decode | trim }}"

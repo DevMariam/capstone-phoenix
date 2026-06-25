@@ -1,0 +1,91 @@
+# StatefulSet gives each Postgres pod a stable identity and its own PVC.
+# k3s ships with the "local-path" storage class by default, which is what
+# the PVC below uses. The data lives on the node's disk, so it survives
+# pod restarts and deletes — the capstone requires you to prove this.
+#
+# How to prove data survives a pod delete (run after app is working):
+#   1. Create a task through the UI
+#   2. kubectl delete pod -n taskapp -l app=postgres
+#   3. Wait for the pod to restart (kubectl get pods -n taskapp -w)
+#   4. Log in and confirm your task is still there
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: taskapp
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: taskapp-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "taskapp", "-d", "taskapp"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "taskapp", "-d", "taskapp"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi
+---
+# Headless service — gives the StatefulSet a stable DNS name inside the cluster.
+# The backend connects to "postgres:5432", which kube-dns resolves to this service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: taskapp
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

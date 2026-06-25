@@ -1,0 +1,54 @@
+{
+  "control_plane_private_ip": {
+    "sensitive": false,
+    "type": "string",
+    "value": "10.10.0.5"
+  },
+  "control_plane_public_ip": {
+    "sensitive": false,
+    "type": "string",
+    "value": "104.236.121.208"
+  },
+  "worker_names": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "phoenix-worker-1",
+      "phoenix-worker-2"
+    ]
+  },
+  "worker_private_ips": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "10.10.0.6",
+      "10.10.0.7"
+    ]
+  },
+  "worker_public_ips": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "143.198.20.180",
+      "45.55.64.214"
+    ]
+  }
+}

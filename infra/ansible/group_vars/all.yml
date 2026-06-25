@@ -1,0 +1,9 @@
+---
+# The non-root sudo user created on every node by bootstrap.yml.
+# All subsequent Ansible runs connect as this user, not root.
+admin_user: mariam
+
+# Pin the k3s version for reproducibility (don't use "latest").
+# Check current stable releases at https://github.com/k3s-io/k3s/releases
+# and update this if the install fails because the version is gone.
+k3s_version: v1.30.4+k3s1
