@@ -1,14 +1,3 @@
-# Same-origin Ingress: one domain, two backends.
-#   taskapp-mariam.xyz/api  → backend service  (Flask)
-#   taskapp-mariam.xyz/     → frontend service (nginx/React)
-#
-# TLS is managed by cert-manager. Start with letsencrypt-prod to test
-# the ACME HTTP01 challenge works (staging has no rate limits).
-# Once you see the cert issue successfully, change the annotation to:
-#   cert-manager.io/cluster-issuer: letsencrypt-prod
-# and delete the staging secret so a real cert is requested:
-#   kubectl delete secret taskapp-tls -n taskapp
-#
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -16,8 +5,6 @@ metadata:
   namespace: taskapp
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # Strip the /api prefix before forwarding to the backend so Flask
-    # sees /health not /api/health on its internal routes.
     traefik.ingress.kubernetes.io/router.middlewares: taskapp-strip-api@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -44,9 +31,6 @@ spec:
                 port:
                   number: 80
 ---
-# Traefik Middleware: strips /api prefix before the request hits Flask.
-# Without this, Flask would need routes registered under /api/health,
-# /api/tasks, etc. With it, Flask keeps its plain /health, /tasks routes.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
