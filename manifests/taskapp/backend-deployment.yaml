@@ -32,6 +32,13 @@ spec:
           image: ghcr.io/ts-a-devops/taskapp-backend:5d6b8fc
           ports:
             - containerPort: 5000
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: DATABASE_HOST
               valueFrom:
