@@ -1,16 +1,3 @@
-# Migrations run as a one-off Job, NOT in the backend entrypoint.
-#
-# Why this matters at 2+ replicas:
-#   If each backend pod ran "flask db upgrade" on startup, two pods would
-#   race to apply the same migration simultaneously, causing data corruption
-#   or a crash. A Job runs once to completion first, then the Deployment
-#   starts its replicas with the schema already in place.
-#
-# Re-run this Job whenever you deploy a schema change:
-#   kubectl delete job db-migrate -n taskapp
-#   kubectl apply -f migrations-job.yaml
-#   kubectl wait --for=condition=complete job/db-migrate -n taskapp --timeout=120s
-#
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -21,15 +8,16 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-secret
       initContainers:
-        # Wait for Postgres to be ready before attempting migrations.
         - name: wait-for-postgres
           image: postgres:15-alpine
           command:
             - sh
             - -c
             - |
-              until pg_isready -h postgres -U taskapp -d taskapp; do
+              until pg_isready -h postgres -U taskapp_user -d taskapp; do
                 echo "Waiting for postgres..."; sleep 2;
               done
           env:
@@ -37,17 +25,37 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: taskapp-secret
-                  key: POSTGRES_PASSWORD
+                  key: DATABASE_PASSWORD
       containers:
         - name: migrate
           image: ghcr.io/ts-a-devops/taskapp-backend:5d6b8fc
-          command: ["flask", "db", "upgrade"]
+          command: ["alembic", "upgrade", "head"]
           env:
-            - name: DATABASE_URL
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: DATABASE_HOST
+            - name: DATABASE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: DATABASE_PORT
+            - name: DATABASE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: DATABASE_NAME
+            - name: DATABASE_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: taskapp-config
+                  key: DATABASE_USER
+            - name: DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: taskapp-secret
-                  key: DATABASE_URL
+                  key: DATABASE_PASSWORD
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
