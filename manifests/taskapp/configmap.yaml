@@ -3,6 +3,8 @@ kind: ConfigMap
 metadata:
   name: taskapp-config
   namespace: taskapp
+  labels:
+    gitops-test: "true"
 data:
   FLASK_ENV: "production"
   FLASK_DEBUG: "0"
@@ -11,3 +13,4 @@ data:
   DATABASE_NAME: "taskapp"
   DATABASE_USER: "taskapp_user"
   CORS_ORIGINS: "https://taskapp-mariam.xyz"
+  # gitops-sync-test: Fri Jun 26 02:24:40 WAT 2026
