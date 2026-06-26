@@ -1,47 +1,89 @@
-# Architecture (fill this in)
+# Architecture — Phoenix: TaskApp on Real Kubernetes
 
-## 1. Topology diagram
-> Draw it (ASCII, Excalidraw, draw.io — anything). Show: your nodes, where each TaskApp
-> tier runs, the ingress controller, and the request path.
+## Overview
 
-```
-[ replace with your diagram ]
+TaskApp is a full-stack task management application (React/nginx frontend,
+Flask/Postgres backend) deployed on a self-provisioned 3-node k3s Kubernetes
+cluster on DigitalOcean, managed entirely via GitOps (Argo CD).
 
-  Internet ──DNS──▶ taskapp.<you>.dev / api.<you>.dev
-        │
-        ▼
-  ingress controller (node: ____)  ──TLS terminated by cert-manager──┐
-        │                                                            │
-        ▼                                                            ▼
-  frontend Service ──▶ frontend Pods (nodes: __, __)        backend Service ──▶ backend Pods (nodes: __, __)
-                              │  /api proxy                              │
-                              └────────────────────────────────────────▶│
-                                                                         ▼
-                                                          postgres Service ──▶ postgres-0 (PVC on node __)
-```
+## Infrastructure Layer
 
-## 2. Node & network
-- Nodes (role, size, AZ/region): …
-- CIDR / subnet choices and why: …
-- Firewall: what's open to the world, what's internal, and why `6443` is closed: …
+### Cloud Provider
+DigitalOcean — chosen for simple API, predictable pricing, and native
+Terraform provider support.
 
-## 3. Request flow (one paragraph)
-> DNS → ingress → TLS → frontend → /api → backend → Postgres. Be specific about names/ports.
+### Terraform Modules
+- modules/network/ — VPC (10.10.0.0/24, nyc3)
+- modules/compute/ — 1 control-plane + 2 worker droplets (s-2vcpu-4gb)
+- modules/firewall/ — Least-privilege inbound rules
 
-## 4. The single-server assumptions you fixed  ← graders look here
-> For each, name the assumption that was safe on one box but breaks on a cluster, and the
-> K8s mechanism you used. Minimum: migrations, persistent storage, traffic routing,
-> self-healing, zero-downtime deploys, secrets.
+### Firewall Rules
+| Port | Source | Purpose |
+|------|--------|---------|
+| 22 | Admin IP only | SSH |
+| 80/443 | 0.0.0.0/0 | App traffic |
+| 6443 | VPC + Admin IP | Kubernetes API |
+| 8472/10250 | VPC only | Node-to-node |
 
-| Single-server assumption | Why it breaks at scale | How you fixed it |
-|---|---|---|
-| migrate-on-boot in the entrypoint | 2+ replicas race on `alembic upgrade head` | … |
-| named volume on the host | Pods reschedule across nodes | … |
-| `ports:` published on the host | many Pods, many nodes, one front door needed | … |
-| … | … | … |
+### Remote State
+Terraform Cloud — provides remote state storage and locking.
 
-## 5. Choices & trade-offs
-- Raw YAML vs Helm vs kustomize — why: …
-- ingress-nginx vs k3s Traefik — why: …
-- CNI / NetworkPolicy enforcement — what and why: …
-- Secrets approach (out-of-band vs Sealed/External Secrets) — why: …
+## Cluster Layer
+
+### k3s (v1.30.4+k3s1)
+- 1 control-plane: phoenix-control (104.236.121.208)
+- 2 workers: phoenix-worker-1, phoenix-worker-2
+- Built-in: Traefik, CoreDNS, metrics-server, Flannel CNI
+
+### Ansible Automation
+- bootstrap.yml — creates non-root sudo user, disables root SSH
+- site.yml — idempotent k3s install, fetches kubeconfig
+
+## Application Layer
+
+### Configuration Split
+- ConfigMap — non-secret: DB host, port, name, user, Flask env
+- Secret — sensitive: DB password, JWT secret key
+
+### Postgres (StatefulSet)
+Single replica with 2Gi PVC (local-path storage class).
+Data survives pod deletion — proven by delete test.
+
+### Migrations (Job)
+Runs alembic upgrade head once before backend replicas start,
+preventing the race condition at 2+ replicas.
+
+### Backend (Flask/gunicorn)
+- 2 replicas, spread across nodes via topologySpreadConstraints
+- maxUnavailable: 0 rolling updates
+- HPA: scales 2-5 replicas at 70% CPU
+- securityContext: runAsNonRoot, drop ALL capabilities
+
+### Frontend (React/nginx)
+- 2 replicas spread across nodes
+- PodDisruptionBudget: minimum 1 replica always available
+
+### Ingress (Traefik)
+Same-origin routing on taskapp-mariam.xyz:
+- /api/* → backend (Flask handles /api/ prefix natively)
+- /* → frontend (nginx/React)
+TLS via Let's Encrypt cert-manager. No self-signed certificates.
+
+## GitOps Layer (Argo CD)
+
+Argo CD watches manifests/taskapp/ in this repo.
+Any git push to main auto-syncs to the cluster within ~3 minutes.
+No manual kubectl apply in the final state.
+
+## Traffic Flow
+User → HTTPS:443 → Firewall → Traefik
+/api/* → backend Service → Flask Pod → Postgres
+/*     → frontend Service → nginx Pod
+## High Availability
+
+| Failure | Recovery |
+|---------|----------|
+| Backend pod killed | Other replica serves traffic, new pod starts in ~15s |
+| Frontend pod killed | Other replica serves traffic, new pod starts in ~10s |
+| Worker node lost | Pods rescheduled to remaining nodes in ~60s |
+| Postgres pod killed | StatefulSet restarts pod, PVC reattaches, ~5s downtime |
